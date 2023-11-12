@@ -35,7 +35,9 @@ int initConfigDir(char* dir) {
     char* repoDir = concat(dir, "/repo");
     if(dirStatus != 0) {
         if(errno == 2) {
-            mkdir(dir, 0700);
+            if(mkdir(dir, 0700) != 0) {
+                printf("Could not create config directory (%s). Error code was %i", dir, errno);
+            }
         } else {
             printf("Error accessing config directory (%s). Error was not ENOENT. Error code was %i", dir, errno);
         }
@@ -43,7 +45,9 @@ int initConfigDir(char* dir) {
     dirStatus = stat(repoDir,&st);
     if(dirStatus != 0) {
         if(errno == 2) {
-            mkdir(repoDir, 0700);
+            if(mkdir(repoDir, 0700) != 0) {
+                printf("Could not create config directory (%s). Error code was %i", repoDir, errno);
+            }
         } else {
             printf("Error accessing repo directory (%s). Error was not ENOENT. Error code was %i", repoDir, errno);
         }
@@ -62,6 +66,10 @@ int main(int argc, char *argv[]) {
     initConfigDir(usrConfigDir);
     if (argc <= 1) {
         printf("Not enough arguments");
+    } else {
+        if (strcmp(argv[1], "install") == 0 || strcmp(argv[1], "update") == 0 || strcmp(argv[1], "sync")) {
+            //run corresponding script (for sync that would be the update script for the repo package)
+        }
     }
     return 0;
 }
