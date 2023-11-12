@@ -27,7 +27,6 @@ int concat(char *s1, char *s2, char *outputString, size_t outputSize) {
     if(outputSize < strlen(s1) + strlen(s2) + 1) {
         fprintf(stderr, "Could not concatonate strings, size of buffer too small. %lu<%lu", outputSize, strlen(s1) + strlen(s2) + 1);
         exitCode = -1;
-        run = 0;
         return 1;
     }
     strlcpy(outputString, s1, strlen(s1) + strlen(s2) + 1);
@@ -35,7 +34,7 @@ int concat(char *s1, char *s2, char *outputString, size_t outputSize) {
     return 0;
 }
 
-// check forconfig dir and contents, ifincomplete, create
+// check for config dir and contents, ifincomplete, create
 int initConfigDir(char *dir) {
     char repoDirTmp[strlen(dir) + 6];
     concat(dir, "/repo", repoDirTmp, sizeof(repoDirTmp));
@@ -48,73 +47,70 @@ int initConfigDir(char *dir) {
             if(mkdir(dir, 0700) != 0) {
                 fprintf(stderr, "Could not create config directory (%s). Error was: %s Error number was: %i\n", dir, strerror(errno), errno);
                 exitCode = errno;
-                run = 0;
             }
         } else {
             fprintf(stderr, "Error accessing config directory (%s). Error was not ENOENT. Error was: %s Error number was: %i\n", dir, strerror(errno), errno);
             exitCode = errno;
-            run = 0;
         }
     }
     dirStatus = stat(repoDirTmp, &st);
     if(dirStatus != 0) {
         if(errno == 2) {
-            if(mkdir(repoDirTmp, 0700) != 0)
-            {
+            if(mkdir(repoDirTmp, 0700) != 0) {
                 fprintf(stderr, "Could not create repo directory (%s). Error was: %s\n", repoDirTmp, strerror(errno));
                 exitCode = errno;
-                run = 0;
             }
         } else {
             fprintf(stderr, "Error accessing repo directory (%s). Error was not ENOENT. Error was: %s\n", repoDirTmp, strerror(errno));
             exitCode = errno;
-            run = 0;
         }
     }
     return 0;
 }
 
-// run script for verb
-int runScript(int argc, char *argv[]) {
-    // remove duplicates
-    // run all the scripts
-    char packages[argc-2][PACKAGE_NAME_MAX_LENGTH];
+int removeDuplicates(int argc, char *argv[], char packages[argc-2][PACKAGE_NAME_MAX_LENGTH]) {
+    char tempPackages[argc-2][PACKAGE_NAME_MAX_LENGTH];
     for(int i = 0; i<argc-2;i++) {
-        strlcpy(packages[i],argv[i+2],PACKAGE_NAME_MAX_LENGTH);
+        strlcpy(tempPackages[i],argv[i+2],PACKAGE_NAME_MAX_LENGTH);
     }
-    qsort(packages, argc-2, PACKAGE_NAME_MAX_LENGTH, (int(*)(const void*,const void*))strcoll);
-    for(int i = 0; i<argc-2;i++) {
-        printf("%s\n", packages[i]);
+    qsort(tempPackages, argc-2, PACKAGE_NAME_MAX_LENGTH, (int(*)(const void*,const void*))strcoll);
+    u_int16_t offset = 0;
+    for(int i = 0;i<argc-2;i++) {
+        if(i+1<=argc-2 && strcmp(tempPackages[i], tempPackages[i+1]) != 0) {
+            strlcpy(packages[i-offset],tempPackages[i], PACKAGE_NAME_MAX_LENGTH);
+        } else if(strcmp(tempPackages[i], tempPackages[i+1]) == 0) {
+            offset++;
+        }
     }
-    return 0;
+    return argc-2-offset;
 }
 int main(int argc, char *argv[]) {
-    while(run) {
+    do{
         if(getenv("XDG_CONFIG_HOME") != NULL) {
-            concat(getenv("XDG_CONFIG_HOME"), "/pong-pkg", usrConfigDir, sizeof(usrConfigDir));
+            if(concat(getenv("XDG_CONFIG_HOME"), "/pong-pkg", usrConfigDir, sizeof(usrConfigDir)) != 0) {break;};
         } else {
-            concat(getenv("HOME"), "/.config/pong-pkg", usrConfigDir, sizeof(usrConfigDir));
+            if(concat(getenv("HOME"), "/.config/pong-pkg", usrConfigDir, sizeof(usrConfigDir)) != 0) {break;};
         }
-        concat(usrConfigDir, "/repo", usrRepoDir, sizeof(usrRepoDir));
+        if(concat(usrConfigDir, "/repo", usrRepoDir, sizeof(usrRepoDir)) != 0) {break;};
         // check for config dir and contents, if incomplete, create
-        initConfigDir(usrConfigDir);
+        if(initConfigDir(usrConfigDir) != 0) {break;};
         if(argc <= 1) {
             fprintf(stderr, "Not enough arguments\n");
             exitCode = -1;
-            run = 0;
+            break;
         } else {
             if(strcmp(argv[1], "install") == 0 || strcmp(argv[1], "update") == 0 || strcmp(argv[1], "remove") == 0) {
                 // run corresponding script (for sync that would be the update script for the repo package)
                 if(argc >= 3) {
-                    runScript(argc, argv);
+                    char packages[argc-2][PACKAGE_NAME_MAX_LENGTH];
+                    removeDuplicates(argc, argv, packages);
                 } else {
                     fprintf(stderr, "Not enough arguments for verb %s\n", argv[1]);
                     exitCode = -1;
-                    run = 0;
+                    break;
                 }
             }
         }
-        run = 0;
-    }
+    } while(0);
     return exitCode;
 }
