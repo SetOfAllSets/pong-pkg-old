@@ -5,6 +5,7 @@
 #include <sys/errno.h>
 #include <unistd.h>
 #include <stdio.h>
+#include <bsd/string.h>
 #include "verbs.c"
 
 /*
@@ -18,11 +19,11 @@ char* repoDir = "/etc/pong-pkg/repo";
 char usrConfigDir[68];
 char usrRepoDir[73];
 
-char* concat(const char *s1, const char *s2)
+char* concat(char *s1, char *s2)
 {
-    char *result = malloc(strlen(s1) + strlen(s2) + 1);
-    strcpy(result, s1);
-    strcat(result, s2);
+    char* result = s1;
+    strlcpy(result, s1, strlen(s1) + strlen(s2) + 1);
+    strlcat(result, s2, strlen(s1) + strlen(s2) + 1);
     return result;
 }
 
@@ -52,12 +53,15 @@ int initConfigDir(char* dir) {
 
 int main(int argc, char *argv[]) {
     if (getenv("XDG_CONFIG_HOME") != NULL) {
-        strcpy(usrConfigDir, concat(getenv("XDG_CONFIG_HOME"), "/pong-pkg"));
+        strlcpy(usrConfigDir, concat(getenv("XDG_CONFIG_HOME"), "/pong-pkg"), strlen(usrConfigDir) + strlen(concat(getenv("XDG_CONFIG_HOME"), "/pong-pkg")) + 1);
     } else {
-        strcpy(usrConfigDir, concat(getenv("HOME"), "/.config/pong-pkg"));
+        strlcpy(usrConfigDir, concat(getenv("HOME"), "/.config/pong-pkg"), strlen(usrConfigDir) + strlen(concat(getenv("HOME"), "/.config/pong-pkg")) + 1);
     }
+    strlcpy(usrRepoDir, concat(usrConfigDir, "/repo"), (strlen(concat(usrConfigDir, "/repo") + strlen(usrRepoDir) + 1)));
     //check for config dir and contents, if incomplete, create
-    strcpy(usrRepoDir, concat(usrConfigDir, "/repo"));
     initConfigDir(usrConfigDir);
+    if (argc <= 1) {
+        printf("Not enough arguments");
+    }
     return 0;
 }
