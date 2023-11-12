@@ -1,0 +1,1 @@
+clang main.c -O3 -Werror -Wall -pedantic -std=c18 --debug
