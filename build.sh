@@ -1,1 +1,1 @@
-clang main.c -O3 -Werror -Wall -pedantic -std=c18 --debug -lbsd
+clang main.c -O3 -Werror -Wall -pedantic -std=c18 -g3 -lbsd
