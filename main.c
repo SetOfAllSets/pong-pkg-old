@@ -1,17 +1,16 @@
 #include <stdlib.h>
-#include <sys/types.h>
-#include <sys/stat.h>
 #include <sys/errno.h>
 #include <unistd.h>
 #include <stdio.h>
 #include <bsd/string.h>
 #include <pthread.h> 
+#include <sys/wait.h>
 
 //change these to  your liking
 #define PACKAGE_NAME_MAX_LENGTH 256
 #define MAX_THREADS 7
-#define CONFIG_DIR "/etc/pong-pkg"
-#define REPO_DIR "/etc/pong-pkg/repo"
+#define CONFIG_DIR "/etc/pong-pkg/"
+#define REPO_DIR "/etc/pong-pkg/repo/"
 
 /*
 string size is 68 because, if config dir is $HOME/.config/pong-pkg and the username is 32 chars long, the
@@ -34,20 +33,21 @@ char repoDir[] = REPO_DIR;
 u_int16_t packageNameMaxLength = PACKAGE_NAME_MAX_LENGTH;
 u_int8_t maxThreads = MAX_THREADS;
 struct arg_struct args;
-u_int8_t boolPrompt(char message[], char input[1024]) {
-    int exitCode = 0;
+u_int8_t boolPrompt(char message[], char input[1024], u_int8_t defaultValue) {
+    int funcExitCode = 0;
     printf("%s", message);
-    //scanf("%s", input);
     fgets(input, 1024, stdin);
     if(strcmp(input,"y\n") != 0 && strcmp(input,"n\n") != 0 && strcmp(input,"\n") != 0) {
         printf("Invalid reponse.\n");
-        boolPrompt(message, input);
+        boolPrompt(message, input, defaultValue);
     } else if(strcmp(input, "y\n") == 0) {
-        exitCode = 0;
+        funcExitCode = 1;
+    } else if(strcmp(input, "n\n")) {
+        funcExitCode = 0;
     } else {
-        exitCode = 1;
+        funcExitCode = defaultValue;
     }
-    return exitCode;
+    return funcExitCode;
 }
 
 int concat(char *s1, char *s2, char *outputString, size_t outputSize) {
@@ -58,40 +58,6 @@ int concat(char *s1, char *s2, char *outputString, size_t outputSize) {
     }
     strlcpy(outputString, s1, strlen(s1) + strlen(s2) + 1);
     strlcat(outputString, s2, strlen(s1) + strlen(s2) + 1);
-    return 0;
-}
-
-// check for config dir and contents, ifincomplete, create
-int initConfigDir(char *dir) {
-    char repoDirTmp[strlen(dir) + 6];
-    concat(dir, "/repo", repoDirTmp, sizeof(repoDirTmp));
-    struct stat st;
-    int dirStatus = stat(dir, &st);
-    if(dirStatus != 0) {
-        // error code 2 is ENOENT; directory does not exist
-        if(errno == 2) {
-            errno = 0;
-            if(mkdir(dir, 0700) != 0) {
-                fprintf(stderr, "Could not create config directory (%s). Error was: %s Error number was: %i\n", dir, strerror(errno), errno);
-                exitCode = errno;
-            }
-        } else {
-            fprintf(stderr, "Error accessing config directory (%s). Error was not ENOENT. Error was: %s Error number was: %i\n", dir, strerror(errno), errno);
-            exitCode = errno;
-        }
-    }
-    dirStatus = stat(repoDirTmp, &st);
-    if(dirStatus != 0) {
-        if(errno == 2) {
-            if(mkdir(repoDirTmp, 0700) != 0) {
-                fprintf(stderr, "Could not create repo directory (%s). Error was: %s\n", repoDirTmp, strerror(errno));
-                exitCode = errno;
-            }
-        } else {
-            fprintf(stderr, "Error accessing repo directory (%s). Error was not ENOENT. Error was: %s\n", repoDirTmp, strerror(errno));
-            exitCode = errno;
-        }
-    }
     return 0;
 }
 
@@ -115,17 +81,38 @@ u_int8_t removeDuplicates(int argc, char *argv[], char packages[argc-2][packageN
 }
 
 void *runScript(void* argsIn) {
-    //u_int8_t currentPackage;
+    u_int8_t currentPackage;
     struct arg_struct args = *(struct arg_struct*)argsIn;
+    char dir[strlen(REPO_DIR)+PACKAGE_NAME_MAX_LENGTH+64];
     while(1) {
         pthread_mutex_lock(&packageProgressMutex);
         if(packageProgress>args.packageCount) {
             pthread_mutex_unlock(&packageProgressMutex);
             break;
         }
-        printf("%s\n", args.packages[packageProgress]);
+        currentPackage = packageProgress;
         packageProgress++;
         pthread_mutex_unlock(&packageProgressMutex);
+        strlcpy(dir, repoDir, sizeof(dir));
+        strlcat(dir, args.packages[currentPackage], sizeof(dir));
+        strlcat(dir, "/", sizeof(dir));
+        strlcat(dir, args.verb, sizeof(dir));
+        strlcat(dir, ".sh", sizeof(dir));
+        pid_t pid = fork();
+        int exitStatus = -1 ;
+        if(pid == 0){
+            execl("/bin/sh", "-c", dir, NULL);
+            // next part should never run as execl replaces the current program, if it runs, execl has returned, indicating an error
+            fprintf(stderr, "Failed to run shell script %s for package %s, execl failed with error: %s, error code %i\n", dir, args.packages[currentPackage], strerror(errno), errno);
+            exit(-1);
+        } else if(pid<0) {
+            fprintf(stderr, "Failed to fork in order to run script.\n");
+        } else {
+            wait(&exitStatus);
+        }
+        if(exitStatus != 0) {
+            fprintf(stderr, "Error operating on package %s. The error occured when running one of the package's scripts (%s). The error code was: %i. The error was: %s\n",args.packages[currentPackage], dir, exitStatus, strerror(exitStatus));
+        }
     }
     return NULL;
 }
@@ -151,8 +138,8 @@ int main(int argc, char *argv[]) {
     do{
         if(strcmp(getenv("USER"), "root") != 0) {
             char input[1024];
-            u_int8_t continueAsNonRoot = boolPrompt("Not running as root. Continue anyway? [y/N]  ", input);
-            if(continueAsNonRoot == 1) {
+            u_int8_t continueAsNonRoot = boolPrompt("Not running as root. Continue anyway? [y/N]  ", input, 0);
+            if(continueAsNonRoot == 0) {
                 break;
             }
         }
