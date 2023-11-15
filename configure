@@ -57,12 +57,14 @@ read -p "Cflags (with dashes) [-Werror -Wall -pedantic -std=c18 -lbsd -o pong-pk
 setDefault "-Werror -Wall -pedantic -std=c18 -lbsd"
 export compilerCommand="$compilerCommand $answer"
 
-echo "$compilerCommand" > build.sh
+echo "#!/bin/sh" > build.sh
+echo "$compilerCommand" >> build.sh
 chmod u+x build.sh
 
 read -p "Install directory [/usr/bin/] " answer
 setDefault "/usr/bin/"
 
-echo "mkdir --parents $repoDir" > install.sh
+echo "#!/bin/sh" > install.sh
+echo "mkdir --parents $repoDir" >> install.sh
 echo "mkdir --parents $cfgDir" >> install.sh
 echo "cp $exeName $answer" >> install.sh
