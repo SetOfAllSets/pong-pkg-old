@@ -8,12 +8,6 @@
 #include <termios.h>
 #include "defines.h"
 
-/*
-string size is 68 because, if config dir is $HOME/.config/pong-pkg and the username is 32 chars long, the
-longest allowed at time of writing, then 45 chars should be enough to store the config dir. 68 is
-chosen to allow longer config dir paths than $HOME/.config/pong-pkg in $XDG_CONFIG_HOME for users with a 32 char name.
-*/
-
 pthread_mutex_t packageProgressMutex;
 u_int8_t packageProgress = 0;
 
