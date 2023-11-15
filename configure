@@ -53,7 +53,7 @@ if [ -z "${exeName}" ]; then
 fi
 export compilerCommand="$compilerCommand -o$exeName"
 
-read -p "Cflags (with dashes) [-Werror -Wall -pedantic -std=c18 -lbsd -o pong-pkg] " answer
+read -p "Cflags (with dashes) [-Werror -Wall -pedantic -std=c18 -lbsd] " answer
 setDefault "-Werror -Wall -pedantic -std=c18 -lbsd"
 export compilerCommand="$compilerCommand $answer"
 
