@@ -1,5 +1,8 @@
 .vscode*
+
 build.sh
 defines.h
+install.sh
+
 pong-pkg
 a.out

@@ -1,11 +1,12 @@
 #!/bin/sh
 
-setDefault() {
-if [ -z "${answer}" ]; then
-export answer=$1
-fi
-}
+export answer=""
 
+setDefault() {
+    if [ -z "${answer}" ]; then
+        export answer=$1
+    fi
+}
 read -p "Package name max length [256] " answer
 setDefault "256"
 echo "#define PACKAGE_NAME_MAX_LENGTH $answer" > defines.h
@@ -22,13 +23,17 @@ read -p "Default max threads (When not changed in config file) [1] " answer
 setDefault 1
 echo "#define MAX_THREADS $answer" >> defines.h
 
-read -p "Config file directory [/etc/pong-pkg/config/] " answer
-setDefault "/etc/pong-pkg/config/"
-echo "#define CONFIG_DIR \"$answer\"" >> defines.h
+read -p "Config file directory [/etc/pong-pkg/config/] " cfgDir
+if [ -z "${cfgDir}" ]; then
+    export cfgDir="/etc/pong-pkg/config/"
+fi
+echo "#define CONFIG_DIR \"$cfgDir\"" >> defines.h
 
-read -p "Repo directory [/etc/pong-pkg/repo/] " answer
-setDefault "/etc/pong-pkg/repo/"
-echo "#define REPO_DIR \"$answer\"" >> defines.h
+read -p "Repo directory [/etc/pong-pkg/repo/] " repoDir
+if [ -z "${repoDir}" ]; then
+    export repoDir="/etc/pong-pkg/repo/"
+fi
+echo "#define REPO_DIR \"$repoDir\"" >> defines.h
 
 read -p "C compiler [cc] " answer
 setDefault "cc"
@@ -42,9 +47,22 @@ read -p "Debug level (no -g) [0] " answer
 setDefault "0"
 export compilerCommand="$compilerCommand -g$answer"
 
+read -p "Executable name [pong-pkg] " exeName
+if [ -z "${exeName}" ]; then
+    export exeName="pong-pkg"
+fi
+export compilerCommand="$compilerCommand -o$exeName"
+
 read -p "Cflags (with dashes) [-Werror -Wall -pedantic -std=c18 -lbsd -o pong-pkg] " answer
-setDefault "-Werror -Wall -pedantic -std=c18 -lbsd -o pong-pkg"
+setDefault "-Werror -Wall -pedantic -std=c18 -lbsd"
 export compilerCommand="$compilerCommand $answer"
 
 echo "$compilerCommand" > build.sh
 chmod u+x build.sh
+
+read -p "Install directory [/usr/bin/] " answer
+setDefault "/usr/bin/"
+
+echo "mkdir --parents $repoDir" > install.sh
+echo "mkdir --parents $cfgDir" >> install.sh
+echo "cp $exeName $answer" >> install.sh
