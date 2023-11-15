@@ -103,7 +103,6 @@ void *runScript(void* unused) {
         pid_t pid = fork();
         int exitStatus = -1 ;
         if(pid == 0){
-            printf("%i, %i\n", packageProgress, packageCount);
             execl("/bin/sh", "-c", dir, NULL);
             // next part should never run as execl replaces the current program, if it runs, execl has returned, indicating an error
             fprintf(stderr, "Failed to run shell script %s for package %s, execl failed with error: %s, error code %i\n", dir, packages[currentPackage], strerror(errno), errno);
@@ -165,7 +164,8 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Not enough arguments\n");
         exit(-1);
     } else {
-        if(strcmp(argv[1], "install") == 0 || strcmp(argv[1], "update") == 0 || strcmp(argv[1], "remove") == 0 || strcmp(argv[1], "sync") == 0) {
+        strlcpy(verb, argv[1], sizeof(verb));
+        if(strcmp(verb, "install") == 0 || strcmp(verb, "update") == 0 || strcmp(verb, "remove") == 0 || strcmp(verb, "sync") == 0) {
             // run corresponding script (for sync that would be the update script for the repo package)
             if(argc >= 3) {
                 removeDuplicates(argc, argv);
