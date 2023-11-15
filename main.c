@@ -27,7 +27,7 @@ u_int8_t boolPrompt(char message[], u_int8_t defaultValue) {
     new_tio = old_tio;
     new_tio.c_lflag &=(~ICANON );
 
-    int exitCode = 0;
+    u_int8_t exitCode = 0;
     printf("%s", message);
     // disable canonical mode
     tcsetattr(STDIN_FILENO,TCSANOW,&new_tio);
@@ -64,13 +64,13 @@ u_int8_t concat(char *s1, char *s2, char *outputString, size_t outputSize) {
 
 u_int8_t removeDuplicates(int argc, char *argv[]) {
     char tempPackages[argc-2][packageNameMaxLength];
-    for(int i = 0; i<argc-2;i++) {
+    for(u_int8_t i = 0; i<argc-2;i++) {
         strlcpy(tempPackages[i],argv[i+2],packageNameMaxLength);
     }
     qsort(tempPackages, argc-2, packageNameMaxLength, (int(*)(const void*,const void*))strcoll);
     u_int16_t offset = 0;
     packageCount = 0;
-    for(int i = 0;i<argc-2;i++) {
+    for(u_int8_t i = 0;i<argc-2;i++) {
         if(i+1<=argc-2 && strcmp(tempPackages[i], tempPackages[i+1]) != 0) {
             strlcpy(packages[i-offset],tempPackages[i], packageNameMaxLength);
             packageCount++;
@@ -101,7 +101,7 @@ void *runScript(void* unused) {
         strlcat(dir, verb, sizeof(dir)/sizeof(char));
         strlcat(dir, ".sh", sizeof(dir)/sizeof(char));
         pid_t pid = fork();
-        int exitStatus = -1 ;
+        u_int8_t exitStatus = 0;
         if(pid == 0){
             execl("/bin/sh", "-c", dir, NULL);
             // next part should never run as execl replaces the current program, if it runs, execl has returned, indicating an error
@@ -122,14 +122,14 @@ void *runScript(void* unused) {
 u_int8_t runVerb(char verb[]) {
     if(maxThreads>1) {
         pthread_t threads[maxThreads-1];
-            for(int i = 0; i<=packageCount+1; i++) {
+            for(u_int8_t i = 0; i<=packageCount+1; i++) {
                 strlcpy(packages[i], packages[i], sizeof(packages[i])/sizeof(char));
             }
-            for(int i = 0; i<packageCount && i<maxThreads-1; i++) {
+            for(u_int8_t i = 0; i<packageCount && i<maxThreads-1; i++) {
                 pthread_create(&threads[i], NULL, runScript, NULL);
             }
         runScript(NULL);
-        for(int i = 0; i<packageCount && i<maxThreads-1; i++) {
+        for(u_int8_t i = 0; i<packageCount && i<maxThreads-1; i++) {
             pthread_join(threads[i], NULL);
         }
     } else {
@@ -140,8 +140,8 @@ u_int8_t runVerb(char verb[]) {
 
 u_int8_t sanitizeInput(void) {
     u_int8_t exitCode = 0;
-    for(int i = 0; i<packageCount; i++) {
-        for(int j = 0; j<packageNameMaxLength-2; j++) {
+    for(u_int8_t i = 0; i<packageCount; i++) {
+        for(u_int8_t j = 0; j<packageNameMaxLength-2; j++) {
             if(packages[i][j] == '/' && packages[i][j+1] == '.' && packages[i][j+2] == '.') {
                 exitCode = 1;
                 break;
