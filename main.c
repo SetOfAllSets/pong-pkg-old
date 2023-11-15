@@ -5,12 +5,8 @@
 #include <bsd/string.h>
 #include <pthread.h> 
 #include <sys/wait.h>
-
-//change these to  your liking
-#define PACKAGE_NAME_MAX_LENGTH 256
-#define MAX_THREADS 7
-#define CONFIG_DIR "/etc/pong-pkg/"
-#define REPO_DIR "/etc/pong-pkg/repo/"
+#include <termios.h>
+#include "defines.h"
 
 /*
 string size is 68 because, if config dir is $HOME/.config/pong-pkg and the username is 32 chars long, the
@@ -20,12 +16,11 @@ chosen to allow longer config dir paths than $HOME/.config/pong-pkg in $XDG_CONF
 
 pthread_mutex_t packageProgressMutex;
 u_int8_t packageProgress = 0;
-int exitCode = 0;
 
 struct arg_struct {
     char verb[32];
     u_int8_t packageCount;
-    char packages[255][PACKAGE_NAME_MAX_LENGTH];
+    char packages[MAX_PACKAGES_PER_RUN][PACKAGE_NAME_MAX_LENGTH];
 };
 
 char configDir[] = CONFIG_DIR;
@@ -33,28 +28,42 @@ char repoDir[] = REPO_DIR;
 u_int16_t packageNameMaxLength = PACKAGE_NAME_MAX_LENGTH;
 u_int8_t maxThreads = MAX_THREADS;
 struct arg_struct args;
-u_int8_t boolPrompt(char message[], char input[1024], u_int8_t defaultValue) {
-    int funcExitCode = 0;
+u_int8_t boolPrompt(char message[], u_int8_t defaultValue) {
+    // get ready to disable canonical mode
+    struct termios old_tio, new_tio;
+    tcgetattr(STDIN_FILENO, &old_tio);
+    new_tio = old_tio;
+    new_tio.c_lflag &=(~ICANON );
+
+    int exitCode = 0;
     printf("%s", message);
-    fgets(input, 1024, stdin);
-    if(strcmp(input,"y\n") != 0 && strcmp(input,"n\n") != 0 && strcmp(input,"\n") != 0) {
-        printf("Invalid reponse.\n");
-        boolPrompt(message, input, defaultValue);
-    } else if(strcmp(input, "y\n") == 0) {
-        funcExitCode = 1;
-    } else if(strcmp(input, "n\n")) {
-        funcExitCode = 0;
-    } else {
-        funcExitCode = defaultValue;
+    // disable canonical mode
+    tcsetattr(STDIN_FILENO,TCSANOW,&new_tio);
+    char input = getc(stdin);
+    // enable canonical mode again
+    if(input != '\n') {
+        printf("\n");
     }
-    return funcExitCode;
+    tcsetattr(STDIN_FILENO,TCSANOW,&old_tio);
+    if(input != 'y' && input != 'n' && input != '\n') {
+        printf("Invalid reponse.\n");
+        boolPrompt(message, defaultValue);
+    } else if(input == 'y') {
+        exitCode = 1;
+    } else if(input == 'n') {
+        exitCode = 0;
+    } else {
+        exitCode = defaultValue;
+    }
+    return exitCode;
 }
 
-int concat(char *s1, char *s2, char *outputString, size_t outputSize) {
+u_int8_t concat(char *s1, char *s2, char *outputString, size_t outputSize) {
+    u_int8_t exitCode = 0;
     if(outputSize < strlen(s1) + strlen(s2) + 1) {
         fprintf(stderr, "Could not concatonate strings, size of buffer too small. %lu<%lu", outputSize, strlen(s1) + strlen(s2) + 1);
         exitCode = -1;
-        return 1;
+        return exitCode;
     }
     strlcpy(outputString, s1, strlen(s1) + strlen(s2) + 1);
     strlcat(outputString, s2, strlen(s1) + strlen(s2) + 1);
@@ -68,7 +77,7 @@ u_int8_t removeDuplicates(int argc, char *argv[], char packages[argc-2][packageN
     }
     qsort(tempPackages, argc-2, packageNameMaxLength, (int(*)(const void*,const void*))strcoll);
     u_int16_t offset = 0;
-    u_int8_t packageCount;
+    u_int8_t packageCount = 0;
     for(int i = 0;i<argc-2;i++) {
         if(i+1<=argc-2 && strcmp(tempPackages[i], tempPackages[i+1]) != 0) {
             strlcpy(packages[i-offset],tempPackages[i], packageNameMaxLength);
@@ -83,7 +92,7 @@ u_int8_t removeDuplicates(int argc, char *argv[], char packages[argc-2][packageN
 void *runScript(void* argsIn) {
     u_int8_t currentPackage;
     struct arg_struct args = *(struct arg_struct*)argsIn;
-    char dir[strlen(REPO_DIR)+PACKAGE_NAME_MAX_LENGTH+64];
+    char dir[strlen(REPO_DIR)+PACKAGE_NAME_MAX_LENGTH+MAX_SCRIPT_NAME_LENGTH];
     while(1) {
         pthread_mutex_lock(&packageProgressMutex);
         if(packageProgress>args.packageCount) {
@@ -117,7 +126,7 @@ void *runScript(void* argsIn) {
     return NULL;
 }
 
-int runVerb(u_int8_t packageCount, char packages[packageCount][packageNameMaxLength], char verb[]) {
+u_int8_t runVerb(u_int8_t packageCount, char packages[packageCount][packageNameMaxLength], char verb[]) {
     pthread_t threads[maxThreads-1];
     strlcpy(args.verb, verb, sizeof(args.verb));
     args.packageCount = packageCount;
@@ -134,34 +143,47 @@ int runVerb(u_int8_t packageCount, char packages[packageCount][packageNameMaxLen
     return 0;
 }
 
-int main(int argc, char *argv[]) {
-    do{
-        if(strcmp(getenv("USER"), "root") != 0) {
-            char input[1024];
-            u_int8_t continueAsNonRoot = boolPrompt("Not running as root. Continue anyway? [y/N]  ", input, 0);
-            if(continueAsNonRoot == 0) {
+u_int8_t sanitizeInput(u_int8_t packageCount, char packages[packageCount][packageNameMaxLength]) {
+    u_int8_t exitCode = 0;
+    for(int i = 0; i<=packageCount; i++) {
+        for(int j = 0; j<strlen(packages[i])-2; j++) {
+            if(packages[i][j] == '/' && packages[i][j+1] == '.' && packages[i][j+2] == '.' && packages[i][j+3] == '/') {
+                exitCode = 1;
                 break;
             }
         }
-        if(argc <= 1) {
-            fprintf(stderr, "Not enough arguments\n");
-            exitCode = -1;
-            break;
-        } else {
-            if(strcmp(argv[1], "install") == 0 || strcmp(argv[1], "update") == 0 || strcmp(argv[1], "remove") == 0 || strcmp(argv[1], "sync") == 0) {
-                // run corresponding script (for sync that would be the update script for the repo package)
-                if(argc >= 3) {
-                    char packages[argc-2][packageNameMaxLength];
-                    runVerb(removeDuplicates(argc, argv, packages), packages, argv[1]);
-                } else {
-                    fprintf(stderr, "Not enough arguments for verb %s\n", argv[1]);
-                    exitCode = -1;
-                    break;
-                }
-            } else {
-                fprintf(stderr, "Unkown verb\n");
-            }
-        }
-    } while(0);
+    }
     return exitCode;
+}
+
+int main(int argc, char *argv[]) {
+    if(strcmp(getenv("USER"), "root") != 0) {
+        u_int8_t continueAsNonRoot = boolPrompt("Not running as root. Continue anyway? [y/N] ", 0);
+        if(continueAsNonRoot == 0) {
+            exit(0);
+        }
+    }
+    if(argc <= 1) {
+        fprintf(stderr, "Not enough arguments\n");
+        exit(-1);
+    } else {
+        if(strcmp(argv[1], "install") == 0 || strcmp(argv[1], "update") == 0 || strcmp(argv[1], "remove") == 0 || strcmp(argv[1], "sync") == 0) {
+            // run corresponding script (for sync that would be the update script for the repo package)
+            if(argc >= 3) {
+                char packages[argc-2][packageNameMaxLength];
+                u_int8_t packageCount = removeDuplicates(argc, argv, packages);
+                if(sanitizeInput(packageCount, packages) != 0) {
+                    fprintf(stderr, "\"/../\" not allowed in package names\n");
+                    exit(-1);
+                }
+                runVerb(packageCount, packages, argv[1]);
+            } else {
+                fprintf(stderr, "Not enough arguments for verb %s\n", argv[1]);
+                exit(-1);
+            }
+        } else {
+            fprintf(stderr, "Unkown verb\n");
+        }
+    }
+    return 0;
 }

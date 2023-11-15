@@ -1,1 +1,1 @@
-clang main.c -O3 -Werror -Wall -pedantic -std=c18 -g3 -lbsd
+cc main.c -O3 -g0 -Werror -Wall -pedantic -std=c18 -lbsd -o pong-pkg
