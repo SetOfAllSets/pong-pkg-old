@@ -6,6 +6,7 @@
 #include <pthread.h> 
 #include <sys/wait.h>
 #include <termios.h>
+#include <libconfig.h>
 #include "defines.h"
 
 pthread_mutex_t packageProgressMutex;
@@ -18,7 +19,7 @@ char packages[MAX_PACKAGES_PER_RUN][PACKAGE_NAME_MAX_LENGTH];
 char configDir[] = CONFIG_DIR;
 char repoDir[] = REPO_DIR;
 u_int16_t packageNameMaxLength = PACKAGE_NAME_MAX_LENGTH;
-u_int8_t maxThreads = MAX_THREADS;
+int maxThreads = MAX_THREADS;
 
 u_int8_t boolPrompt(char message[], u_int8_t defaultValue) {
     // get ready to disable canonical mode
@@ -53,7 +54,7 @@ u_int8_t boolPrompt(char message[], u_int8_t defaultValue) {
 u_int8_t concat(char *s1, char *s2, char *outputString, size_t outputSize) {
     u_int8_t exitCode = 0;
     if(outputSize < strlen(s1) + strlen(s2) + 1) {
-        fprintf(stderr, "Could not concatonate strings, size of buffer too small. %lu<%lu", outputSize, strlen(s1) + strlen(s2) + 1);
+        fprintf(stderr, "Could not concatonate strings, size of output buffer too small. %lu<%lu", outputSize, strlen(s1) + strlen(s2) + 1);
         exitCode = -1;
         return exitCode;
     }
@@ -62,28 +63,24 @@ u_int8_t concat(char *s1, char *s2, char *outputString, size_t outputSize) {
     return 0;
 }
 
-u_int8_t removeDuplicates(int argc, char *argv[]) {
-    char tempPackages[argc-2][packageNameMaxLength];
-    for(u_int8_t i = 0; i<argc-2;i++) {
-        strlcpy(tempPackages[i],argv[i+2],packageNameMaxLength);
+void getMainConfig(void) {
+    config_t* mainConfig = malloc(sizeof(config_t));
+    config_init(mainConfig);
+    char configFile[sizeof(configDir)+9];
+    concat(configDir, "main.cfg", configFile, sizeof(configFile));
+    if(config_read_file(mainConfig, configFile) != CONFIG_TRUE) {
+        fprintf(stderr, "Error reading config, using default values. file: %s line: %i error: %s \n", config_error_file(mainConfig), config_error_line(mainConfig), config_error_text(mainConfig));
+        config_destroy(mainConfig);
+        free(mainConfig);
+        return;
     }
-    qsort(tempPackages, argc-2, packageNameMaxLength, (int(*)(const void*,const void*))strcoll);
-    u_int16_t offset = 0;
-    packageCount = 0;
-    for(u_int8_t i = 0;i<argc-2;i++) {
-        if(i+1<=argc-2 && strcmp(tempPackages[i], tempPackages[i+1]) != 0) {
-            strlcpy(packages[i-offset],tempPackages[i], packageNameMaxLength);
-            packageCount++;
-        } else if(strcmp(tempPackages[i], tempPackages[i+1]) == 0) {
-            offset++;
-        }
-    }
-    packageCount--;
-    return 0;
+    config_lookup_int(mainConfig, "max-threads", &maxThreads);
+    config_destroy(mainConfig);
+    free(mainConfig);
 }
 
 // var unused is there just so the func matches the signature needed by pthread_create
-void *runScript(void* unused) {
+void *runScript(void) {
     u_int8_t currentPackage;
     char dir[strlen(REPO_DIR)+PACKAGE_NAME_MAX_LENGTH+MAX_SCRIPT_NAME_LENGTH];
     while(1) {
@@ -101,7 +98,7 @@ void *runScript(void* unused) {
         strlcat(dir, verb, sizeof(dir)/sizeof(char));
         strlcat(dir, ".sh", sizeof(dir)/sizeof(char));
         pid_t pid = fork();
-        u_int8_t exitStatus = 0;
+        int exitStatus = 0;
         if(pid == 0){
             execl("/bin/sh", "-c", dir, NULL);
             // next part should never run as execl replaces the current program, if it runs, execl has returned, indicating an error
@@ -119,21 +116,21 @@ void *runScript(void* unused) {
     return NULL;
 }
 
-u_int8_t runVerb(char verb[]) {
+u_int8_t runVerb(void) {
     if(maxThreads>1) {
         pthread_t threads[maxThreads-1];
             for(u_int8_t i = 0; i<=packageCount+1; i++) {
                 strlcpy(packages[i], packages[i], sizeof(packages[i])/sizeof(char));
             }
             for(u_int8_t i = 0; i<packageCount && i<maxThreads-1; i++) {
-                pthread_create(&threads[i], NULL, runScript, NULL);
+                pthread_create(&threads[i], NULL, (void *(*)(void *))runScript, NULL);
             }
-        runScript(NULL);
+        runScript();
         for(u_int8_t i = 0; i<packageCount && i<maxThreads-1; i++) {
             pthread_join(threads[i], NULL);
         }
     } else {
-        runScript(NULL);
+        runScript();
     }
     return 0;
 }
@@ -166,12 +163,16 @@ int main(int argc, char *argv[]) {
         if(strcmp(verb, "install") == 0 || strcmp(verb, "update") == 0 || strcmp(verb, "remove") == 0 || strcmp(verb, "sync") == 0) {
             // run corresponding script (for sync that would be the update script for the repo package)
             if(argc >= 3) {
-                removeDuplicates(argc, argv);
+                getMainConfig();
+                for(int i = 0; i<argc-2; i++) {
+                    strlcpy(packages[i], argv[i+2], sizeof(packages[i]));
+                }
+                packageCount=argc-3;
                 if(sanitizeInput() != 0) {
                     fprintf(stderr, "\"/..\" not allowed in package names\n");
                     exit(-1);
                 }
-                runVerb(argv[1]);
+                runVerb();
             } else {
                 fprintf(stderr, "Not enough arguments for verb %s\n", argv[1]);
                 exit(-1);
