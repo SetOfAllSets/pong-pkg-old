@@ -53,8 +53,8 @@ if [ -z "${exeName}" ]; then
 fi
 export compilerCommand="$compilerCommand -o$exeName"
 
-read -p "Cflags (with dashes) [-Werror -Wall -pedantic -std=c18 -lbsd] " answer
-setDefault "-Werror -Wall -pedantic -std=c18 -lbsd"
+read -p "Cflags (with dashes) [-Werror -Wall -Wextra -pedantic -std=c18 -lbsd -lconfig] " answer
+setDefault "-Werror -Wall -Wextra -pedantic -std=c18 -lbsd -lconfig"
 export compilerCommand="$compilerCommand $answer"
 
 echo "#!/bin/sh" > build.sh
@@ -68,3 +68,4 @@ echo "#!/bin/sh" > install.sh
 echo "mkdir --parents $repoDir" >> install.sh
 echo "mkdir --parents $cfgDir" >> install.sh
 echo "cp $exeName $answer" >> install.sh
+chmod u+x install.sh
