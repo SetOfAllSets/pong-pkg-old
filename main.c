@@ -1,185 +1,50 @@
+#include <pthread.h>
+#include <fcntl.h>
+#include <string.h>
+#include <errno.h>
+#include <sys/types.h>
 #include <stdlib.h>
-#include <sys/errno.h>
 #include <unistd.h>
 #include <stdio.h>
-#include <bsd/string.h>
-#include <pthread.h> 
-#include <sys/wait.h>
-#include <termios.h>
-#include <libconfig.h>
-#include "defines.h"
 
-pthread_mutex_t packageProgressMutex;
-u_int8_t packageProgress = 0;
 
-char verb[32];
-u_int8_t packageCount;
-char packages[MAX_PACKAGES_PER_RUN][PACKAGE_NAME_MAX_LENGTH];
-
-char configDir[] = CONFIG_DIR;
-char repoDir[] = REPO_DIR;
-u_int16_t packageNameMaxLength = PACKAGE_NAME_MAX_LENGTH;
-int maxThreads = MAX_THREADS;
-
-u_int8_t boolPrompt(char message[], u_int8_t defaultValue) {
-    // get ready to disable canonical mode
-    struct termios old_tio, new_tio;
-    tcgetattr(STDIN_FILENO, &old_tio);
-    new_tio = old_tio;
-    new_tio.c_lflag &=(~ICANON );
-
-    u_int8_t exitCode = 0;
-    printf("%s", message);
-    // disable canonical mode
-    tcsetattr(STDIN_FILENO,TCSANOW,&new_tio);
-    char input = getc(stdin);
-    // enable canonical mode again
-    tcsetattr(STDIN_FILENO,TCSANOW,&old_tio);
-    if(input != '\n') {
-        printf("\n");
-    }
-    if(input != 'y' && input != 'n' && input != '\n') {
-        printf("Invalid reponse.\n");
-        exitCode = boolPrompt(message, defaultValue);
-    } else if(input == 'y') {
-        exitCode = 1;
-    } else if(input == 'n') {
-        exitCode = 0;
-    } else {
-        exitCode = defaultValue;
-    }
-    return exitCode;
-}
-
-u_int8_t concat(char *s1, char *s2, char *outputString, size_t outputSize) {
-    u_int8_t exitCode = 0;
-    if(outputSize < strlen(s1) + strlen(s2) + 1) {
-        fprintf(stderr, "Could not concatonate strings, size of output buffer too small. %lu<%lu", outputSize, strlen(s1) + strlen(s2) + 1);
-        exitCode = -1;
-        return exitCode;
-    }
-    strlcpy(outputString, s1, strlen(s1) + strlen(s2) + 1);
-    strlcat(outputString, s2, strlen(s1) + strlen(s2) + 1);
-    return 0;
-}
-
-void getMainConfig(void) {
-    config_t* mainConfig = malloc(sizeof(config_t));
-    config_init(mainConfig);
-    char configFile[sizeof(configDir)+9];
-    concat(configDir, "main.cfg", configFile, sizeof(configFile));
-    if(config_read_file(mainConfig, configFile) != CONFIG_TRUE) {
-        fprintf(stderr, "Error reading config, using default values. file: %s line: %i error: %s \n", config_error_file(mainConfig), config_error_line(mainConfig), config_error_text(mainConfig));
-        config_destroy(mainConfig);
-        free(mainConfig);
-        return;
-    }
-    config_lookup_int(mainConfig, "max-threads", &maxThreads);
-    config_destroy(mainConfig);
-    free(mainConfig);
-}
-
-// var unused is there just so the func matches the signature needed by pthread_create
-void *runScript(void) {
-    u_int8_t currentPackage;
-    char dir[strlen(REPO_DIR)+PACKAGE_NAME_MAX_LENGTH+MAX_SCRIPT_NAME_LENGTH];
-    while(1) {
-        pthread_mutex_lock(&packageProgressMutex);
-        if(packageProgress>packageCount) {
-            pthread_mutex_unlock(&packageProgressMutex);
-            break;
-        }
-        currentPackage = packageProgress;
-        packageProgress++;
-        pthread_mutex_unlock(&packageProgressMutex);
-        strlcpy(dir, repoDir, sizeof(dir)/sizeof(char));
-        strlcat(dir, packages[currentPackage], sizeof(dir)/sizeof(char));
-        strlcat(dir, "/", sizeof(dir)/sizeof(char));
-        strlcat(dir, verb, sizeof(dir)/sizeof(char));
-        strlcat(dir, ".sh", sizeof(dir)/sizeof(char));
-        pid_t pid = fork();
-        int exitStatus = 0;
-        if(pid == 0){
-            execl("/bin/sh", "-c", dir, NULL);
-            // next part should never run as execl replaces the current program, if it runs, execl has returned, indicating an error
-            fprintf(stderr, "Failed to run shell script %s for package %s, execl failed with error: %s, error code %i\n", dir, packages[currentPackage], strerror(errno), errno);
-            exit(-1);
-        } else if(pid<0) {
-            fprintf(stderr, "Failed to fork in order to run script.\n");
-        } else {
-            wait(&exitStatus);
-        }
-        if(exitStatus != 0) {
-            fprintf(stderr, "Error operating on package %s. The error occured when running one of the package's scripts (%s). The error code was: %i. The error was: %s\n",packages[currentPackage], dir, exitStatus, strerror(exitStatus));
-        }
-    }
-    return NULL;
-}
-
-u_int8_t runVerb(void) {
-    if(maxThreads>1) {
-        pthread_t threads[maxThreads-1];
-            for(u_int8_t i = 0; i<=packageCount+1; i++) {
-                strlcpy(packages[i], packages[i], sizeof(packages[i])/sizeof(char));
-            }
-            for(u_int8_t i = 0; i<packageCount && i<maxThreads-1; i++) {
-                pthread_create(&threads[i], NULL, (void *(*)(void *))runScript, NULL);
-            }
-        runScript();
-        for(u_int8_t i = 0; i<packageCount && i<maxThreads-1; i++) {
-            pthread_join(threads[i], NULL);
-        }
-    } else {
-        runScript();
+u_int8_t runScript(const char* filePath) {
+    pid_t pid = fork();
+    if(pid < -1) {
+        return 1;
+    } else if(pid == 0) {
+        execl("/bin/env", "-i", "PATH=/bin:/usr/bin", "/bin/sh", "%s", filePath);
+        //execl() should never return unless something has gone wrong
+        //execl() sets errno if it fails so we should just use that for error reporting if this fails
+        return 2;
     }
     return 0;
 }
 
-u_int8_t sanitizeInput(void) {
-    u_int8_t exitCode = 0;
-    for(u_int8_t i = 0; i<packageCount; i++) {
-        for(u_int8_t j = 0; j<packageNameMaxLength-2; j++) {
-            if(packages[i][j] == '/' && packages[i][j+1] == '.' && packages[i][j+2] == '.') {
-                exitCode = 1;
-                break;
-            }
-        }
-    }
-    return exitCode;
+u_int8_t install(int argc, char* argv[]) {
+    printf("%s%i", argv[1], argc);
+    return 0;
 }
 
-int main(int argc, char *argv[]) {
-    if(strcmp(getenv("USER"), "root") != 0) {
-        u_int8_t continueAsNonRoot = boolPrompt("Not running as root. Continue anyway? [y/N] ", 0);
-        if(continueAsNonRoot == 0) {
-            exit(0);
-        }
+int main (int argc, char* argv[]) {
+    //Check if a verb was provided
+    if(argc<=1) {
+        fprintf(stderr, "Not enough arguments.\n");
+        //Call function to display help message. Doesn't exist yet.
+        return EXIT_FAILURE;
     }
-    if(argc <= 1) {
-        fprintf(stderr, "Not enough arguments\n");
-        exit(-1);
+    if(!strcmp(argv[1], "install")) {
+        install(argc, argv);
+    } else if(!strcmp(argv[1], "remove") || !strcmp(argv[1], "uninstall")) {
+
+    } else if(!strcmp(argv[1], "update")) {
+
+    } else if(!strcmp(argv[1], "help")) {
+        //Call function to display help message. Doesn't exist yet.
     } else {
-        strlcpy(verb, argv[1], sizeof(verb)/sizeof(char));
-        if(strcmp(verb, "install") == 0 || strcmp(verb, "update") == 0 || strcmp(verb, "remove") == 0 || strcmp(verb, "sync") == 0) {
-            // run corresponding script (for sync that would be the update script for the repo package)
-            if(argc >= 3) {
-                getMainConfig();
-                for(int i = 0; i<argc-2; i++) {
-                    strlcpy(packages[i], argv[i+2], sizeof(packages[i]));
-                }
-                packageCount=argc-3;
-                if(sanitizeInput() != 0) {
-                    fprintf(stderr, "\"/..\" not allowed in package names\n");
-                    exit(-1);
-                }
-                runVerb();
-            } else {
-                fprintf(stderr, "Not enough arguments for verb %s\n", argv[1]);
-                exit(-1);
-            }
-        } else {
-            fprintf(stderr, "Unkown verb\n");
-        }
+        fprintf(stderr, "Unrecognized argument: %s\n", argv[1]);
+        //Call function to display help message. Doesn't exist yet.
+        return EXIT_FAILURE;
     }
-    return 0;
+    return EXIT_SUCCESS;
 }

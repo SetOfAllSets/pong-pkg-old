@@ -53,8 +53,8 @@ if [ -z "${exeName}" ]; then
 fi
 export compilerCommand="$compilerCommand -o$exeName"
 
-read -p "Cflags (with dashes) [-Werror -Wall -Wextra -pedantic -std=c18 -lbsd -lconfig] " answer
-setDefault "-Werror -Wall -Wextra -pedantic -std=c18 -lbsd -lconfig"
+read -p "Cflags (with dashes) [-Werror -Wall -Wextra -pedantic -std=c18 -lconfig -fpascal-strings] " answer
+setDefault "-Werror -Wall -Wextra -pedantic -std=c18 -lconfig -fpascal-strings"
 export compilerCommand="$compilerCommand $answer"
 
 echo "#!/bin/sh" > build.sh
